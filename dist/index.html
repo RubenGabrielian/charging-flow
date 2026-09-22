@@ -6,10 +6,72 @@
   <title>ChargeFlow — Լիցքավորման վերլուծություն</title>
   <meta name="description" content="Էլեկտրական մեքենաների արագ լիցքավորման վաճառքի և այցելությունների dashboard">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1020'/%3E%3Cpath d='M36 8 17 36h14l-3 20 19-29H34z' fill='%236ee7b7'/%3E%3C/svg%3E">
+
+  <!-- Resolve the theme before first paint so there is no flash of the wrong one. -->
+  <script>
+    (() => {
+      const saved = (() => { try { return localStorage.getItem('chargeflow_theme'); } catch { return null; } })();
+      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script>
+    /* Every colour is a CSS variable holding an "R G B" triple, so a single set
+       of utility classes serves both themes. Values live in styles.css. */
+    const token = name => `rgb(var(--${name}) / <alpha-value>)`;
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+          colors: {
+            canvas: token('canvas'),
+            surface: token('surface'),
+            raised: token('raised'),
+            track: token('track'),
+            hair: token('hair'),
+            fg: token('fg'),
+            fg2: token('fg2'),
+            muted: token('muted'),
+            faint: token('faint'),
+            field: token('field'),
+            elevated: token('elevated'),
+            onbrand: token('on-brand'),
+            brand: {
+              DEFAULT: token('brand'),
+              deep: token('brand-deep'),
+              soft: token('brand-soft'),
+              text: token('brand-text'),
+            },
+            info: { DEFAULT: token('info'), text: token('info-text') },
+            danger: { DEFAULT: token('danger'), text: token('danger-text') },
+            warn: { DEFAULT: token('warn'), text: token('warn-text') },
+          },
+          borderRadius: { '2xl': '1rem', '3xl': '1.35rem' },
+          boxShadow: {
+            card: 'var(--shadow-card)',
+            lift: 'var(--shadow-lift)',
+            glow: 'var(--shadow-glow)',
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <main id="app"><div class="boot">Բեռնվում է…</div></main>
+<body class="min-h-screen bg-canvas font-sans text-fg antialiased">
+  <div class="pointer-events-none fixed inset-0 -z-10">
+    <div class="theme-blob absolute -top-40 left-1/2 h-[34rem] w-[64rem] -translate-x-1/2 rounded-full bg-brand/[.08] blur-[140px]"></div>
+    <div class="theme-blob absolute bottom-0 right-0 h-[26rem] w-[40rem] rounded-full bg-info/[.06] blur-[130px]"></div>
+  </div>
+  <main id="app"><div class="p-12 text-center text-muted">Բեռնվում է…</div></main>
   <script src="app.js"></script>
 </body>
 </html>
