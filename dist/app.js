@@ -11,11 +11,13 @@ const SUPABASE_KEY = 'sb_publishable_NThhpaesI2pnF8uXWpmNaA_qoQwmsp2';
 /* business constants */
 const PAGE_SIZE = 8;
 const PRICE = 120;          // AMD per kWh sold
-const POWER_COST = 50;      // AMD per kWh paid to the grid
+const POWER_COST = 54;      // AMD per kWh paid to the grid
 const SERVICE_RATE = 0.15;  // platform / partner fee on gross
 const TAX_RATE = 0.10;      // income tax, applied after the service fee
-const LOAN_TARGET = 230000; // AMD — monthly break-even (loan payment)
+const LOAN_TARGET = 195000; // AMD — monthly break-even (loan payment)
 const TREND_DAYS = 30;
+/** Net profit per kWh: 120 − 15% fee − 10% tax (on the remainder) − grid cost. */
+const NET_PER_KWH = PRICE * (1 - SERVICE_RATE) * (1 - TAX_RATE) - POWER_COST;
 
 let entries = [], loading = true, dbError = '';
 let mode = 'kwh', period = 'all', exactDate = '', page = 1;
@@ -174,7 +176,7 @@ function periodText() {
    ========================================================================= */
 
 /** Full P&L for a given energy volume. Net margin is linear in kWh:
- *  120 − 15% − 10% (after fee) − 50 = 41.8 ֏ per kWh. */
+ *  see NET_PER_KWH — the margin is linear in kWh. */
 function economics(kwh) {
   const revenue = kwh * PRICE;
   const service = revenue * SERVICE_RATE;
@@ -208,23 +210,24 @@ function trendSeries(list, days = TREND_DAYS) {
   return out;
 }
 
-/** kWh-per-session histogram — this is what proves the "~25 kWh top-up" story. */
-const BUCKETS = [
-  { label: '0–10', min: 0, max: 10 },
-  { label: '10–20', min: 10, max: 20 },
-  { label: '20–30', min: 20, max: 30 },
-  { label: '30–40', min: 30, max: 40 },
-  { label: '40–60', min: 40, max: 60 },
-  { label: '60+', min: 60, max: Infinity },
-];
+/** Activity by day of week — which days actually bring cars in.
+ *  Averaged over the number of that weekday that carries data, so a month
+ *  with five Mondays and four Tuesdays does not skew the comparison. */
+const WEEKDAYS = ['Երկ', 'Երք', 'Չրք', 'Հնգ', 'Ուրբ', 'Շբթ', 'Կիր'];
 
-function distribution(list) {
-  const counts = BUCKETS.map(() => 0);
+function weekdayStats(list) {
+  const stats = WEEKDAYS.map(label => ({ label, kwh: 0, cars: 0, dates: new Set() }));
   list.forEach(e => {
-    const i = BUCKETS.findIndex(b => e.kwh >= b.min && e.kwh < b.max);
-    if (i >= 0) counts[i]++;
+    const idx = (new Date(e.date + 'T00:00:00').getDay() + 6) % 7; // Monday-first
+    const w = stats[idx];
+    w.kwh += +e.kwh;
+    w.cars++;
+    w.dates.add(e.date);
   });
-  return counts;
+  return stats.map(w => {
+    const days = w.dates.size || 1;
+    return { ...w, days: w.dates.size, avgKwh: w.kwh / days, avgCars: w.cars / days };
+  });
 }
 
 function trend(vals) {
@@ -278,7 +281,7 @@ function kpiSection(shown, days) {
   const monthEcon = economics(monthKwh);
   const progress = (monthEcon.net / LOAN_TARGET) * 100;
   const remaining = Math.max(0, LOAN_TARGET - monthEcon.net);
-  const kwhToTarget = remaining / (PRICE - PRICE * SERVICE_RATE - (PRICE - PRICE * SERVICE_RATE) * TAX_RATE - POWER_COST);
+  const kwhToTarget = remaining / NET_PER_KWH;
 
   const dayOfMonth = new Date().getDate();
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
@@ -370,7 +373,7 @@ function kpiSection(shown, days) {
         Լիցքավորումների <b class="font-semibold text-fg2">${topUpShare.toFixed(0)}%</b>-ը 15–40 կՎտ⋅ժ «լրալիցք» է
       </p>
       <div class="mt-4">${sparkBar(topUpShare, 'from-brand to-brand-soft')}</div>
-      <p class="mt-2 text-xs text-muted">${topUps} գրառում ${shown.length}-ից · մեկ լիցքի շահույթ ≈ ${money(avgKwh * 41.8)}</p>
+      <p class="mt-2 text-xs text-muted">${topUps} գրառում ${shown.length}-ից · մեկ լիցքի շահույթ ≈ ${money(avgKwh * NET_PER_KWH)}</p>
     </article>
 
     <!-- Daily average vehicles -->
@@ -418,8 +421,8 @@ function chartsSection(shown) {
     <article class="${CARD} xl:col-span-2">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="text-base font-semibold tracking-tight text-fg">Լիցքի ծավալի բաշխում</h2>
-          <p class="mt-1 text-sm text-muted">Քանի՞ լիցքավորում՝ ըստ կՎտ⋅ժ միջակայքի</p>
+          <h2 class="text-base font-semibold tracking-tight text-fg">Շաբաթվա օրերի ակտիվություն</h2>
+          <p class="mt-1 text-sm text-muted">Միջինը մեկ օրվա հաշվով · ո՞ր օրերն են բեռնված</p>
         </div>
         <div class="flex rounded-lg border border-hair bg-raised p-0.5">
           ${[['kwh', 'կՎտ⋅ժ'], ['cars', 'Մեքենա']].map(([v, l]) => `
@@ -427,7 +430,7 @@ function chartsSection(shown) {
         </div>
       </div>
       <div class="chart-canvas-wrap mt-5 h-[290px]">
-        ${hasData ? '<canvas id="distChart" height="290"></canvas>' : emptyState('Բաշխում ցուցադրելու տվյալ չկա')}
+        ${hasData ? '<canvas id="distChart" height="290"></canvas>' : emptyState('Ակտիվություն ցուցադրելու տվյալ չկա')}
       </div>
     </article>
   </section>`;
@@ -472,7 +475,7 @@ function financeSection(shown) {
         ${step('Գործընկերոջ սպասարկում՝ 15%', `− ${money(e.service)}`, 'Ընդհանուր շրջանառությունից')}
         ${step('Եկամտահարկ՝ 10%', `− ${money(e.tax)}`, '15%-ը հանելուց հետո')}
         ${step('ՀԷՑ-ի վճար', `− ${money(e.power)}`, `${fmt(totalKwh)} × ${POWER_COST} ֏`)}
-        ${step('Մաքուր մնացորդ', `= ${money(e.net)}`, `≈ 41.8 ֏ յուրաքանչյուր կՎտ⋅ժ-ից`, 'result')}
+        ${step('Մաքուր մնացորդ', `= ${money(e.net)}`, `≈ ${fmt(NET_PER_KWH)} ֏ յուրաքանչյուր կՎտ⋅ժ-ից`, 'result')}
       </div>
     </article>
 
@@ -807,13 +810,11 @@ function drawCharts(shown) {
     });
   }
 
-  /* --- Bar chart: kWh-per-session distribution -------------------------- */
+  /* --- Bar chart: activity by day of week ------------------------------ */
   const distCanvas = document.querySelector('#distChart');
   if (distCanvas) {
-    const counts = distribution(shown);
-    const kwhTotals = BUCKETS.map((b, i) =>
-      shown.filter(e => e.kwh >= b.min && e.kwh < b.max).reduce((s, e) => s + +e.kwh, 0));
-    const values = mode === 'cars' ? counts : kwhTotals.map(v => Math.round(v));
+    const week = weekdayStats(shown);
+    const values = week.map(w => Number((mode === 'cars' ? w.avgCars : w.avgKwh).toFixed(1)));
     const peak = Math.max(...values);
     const ctx = distCanvas.getContext('2d');
     const bar = ctx.createLinearGradient(0, 0, 0, 290);
@@ -826,15 +827,15 @@ function drawCharts(shown) {
     distChart = new Chart(ctx, {
       type: 'bar',
       data: {
-        labels: BUCKETS.map(b => b.label),
+        labels: week.map(w => w.label),
         datasets: [{
-          label: mode === 'cars' ? 'Մեքենա' : 'կՎտ⋅ժ',
+          label: mode === 'cars' ? 'Մեքենա/օր' : 'կՎտ⋅ժ/օր',
           data: values,
           backgroundColor: values.map(v => (v === peak && peak > 0 ? bar : dim)),
           hoverBackgroundColor: bar,
           borderRadius: 8,
           borderSkipped: false,
-          maxBarThickness: 46,
+          maxBarThickness: 40,
         }],
       },
       options: {
@@ -845,17 +846,20 @@ function drawCharts(shown) {
           tooltip: {
             ...tooltipStyle(),
             callbacks: {
-              title: items => `${items[0].label} կՎտ⋅ժ միջակայք`,
-              label: item => mode === 'cars'
-                ? ` ${item.parsed.y} լիցքավորում`
-                : ` ${fmt(item.parsed.y, 0)} կՎտ⋅ժ · ${counts[item.dataIndex]} լիցքավորում`,
-              afterBody: items => ` Շահույթ՝ ${money(kwhTotals[items[0].dataIndex] * 41.8)}`,
+              title: items => `${items[0].label}. · ${week[items[0].dataIndex].days} օր տվյալներով`,
+              label: item => {
+                const w = week[item.dataIndex];
+                return mode === 'cars'
+                  ? ` ${fmt(w.avgCars)} մեքենա/օր · ընդամենը ${w.cars}`
+                  : ` ${fmt(w.avgKwh)} կՎտ⋅ժ/օր · ընդամենը ${fmt(w.kwh)}`;
+              },
+              afterBody: items => ` Շահույթ՝ ${money(week[items[0].dataIndex].kwh * NET_PER_KWH)}`,
             },
           },
         },
         scales: {
           x: { grid: { display: false }, border: { display: false }, ticks: { padding: 4 } },
-          y: { beginAtZero: true, grid: { color: grid(), drawTicks: false }, border: { display: false }, ticks: { maxTicksLimit: 5, padding: 8, precision: 0 } },
+          y: { beginAtZero: true, grid: { color: grid(), drawTicks: false }, border: { display: false }, ticks: { maxTicksLimit: 5, padding: 8 } },
         },
       },
     });
